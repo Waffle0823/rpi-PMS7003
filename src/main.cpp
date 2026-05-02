@@ -1,5 +1,8 @@
 #include "pms7003.hpp"
 #include <cerrno>
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -8,6 +11,38 @@
 #include <string>
 #include <termios.h>
 #include <unistd.h>
+
+static constexpr char     PMSLOG_MAGIC[8]      = {'P','M','S','L','O','G','\0','\0'};
+static constexpr uint32_t PMSLOG_VERSION       = 1;
+static constexpr uint32_t PMSLOG_RECORD_SIZE   = 32;
+
+static bool write_log_header(std::FILE *fp) {
+  if (std::fwrite(PMSLOG_MAGIC, 1, sizeof(PMSLOG_MAGIC), fp) != sizeof(PMSLOG_MAGIC))
+    return false;
+  uint32_t v = PMSLOG_VERSION;
+  uint32_t s = PMSLOG_RECORD_SIZE;
+  if (std::fwrite(&v, sizeof(v), 1, fp) != 1) return false;
+  if (std::fwrite(&s, sizeof(s), 1, fp) != 1) return false;
+  std::fflush(fp);
+  return true;
+}
+
+static bool append_log_record(std::FILE *fp, const PMS7003Data &d) {
+  const auto now = std::chrono::system_clock::now().time_since_epoch();
+  const int64_t ts_ns =
+      std::chrono::duration_cast<std::chrono::nanoseconds>(now).count();
+
+  uint16_t vals[12] = {
+      d.pm1_0_cf1, d.pm2_5_cf1, d.pm10_cf1,
+      d.pm1_0_atm, d.pm2_5_atm, d.pm10_atm,
+      d.air_0_3,   d.air_0_5,   d.air_1_0,
+      d.air_2_5,   d.air_5_0,   d.air_10_0,
+  };
+  if (std::fwrite(&ts_ns, sizeof(ts_ns), 1, fp) != 1) return false;
+  if (std::fwrite(vals, sizeof(vals), 1, fp) != 1) return false;
+  std::fflush(fp);
+  return true;
+}
 
 static void print_pms_data(const PMS7003Data &data) {
   using std::cout;
@@ -38,11 +73,32 @@ static void print_pms_data(const PMS7003Data &data) {
   cout << std::dec << std::setfill(' ');
 }
 
-static void start(const std::string &port, const int speed) {
+static void start(const std::string &port, const int speed,
+                  const std::string &output_path) {
   int fd = open(port.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
   if (fd < 0) {
     std::cerr << "Failed to open serial port" << std::endl;
     return;
+  }
+
+  std::FILE *log_fp = nullptr;
+  if (!output_path.empty()) {
+    const bool exists = (access(output_path.c_str(), F_OK) == 0);
+    log_fp = std::fopen(output_path.c_str(), "ab");
+    if (!log_fp) {
+      std::cerr << "Failed to open output file '" << output_path
+                << "': " << strerror(errno) << std::endl;
+      close(fd);
+      return;
+    }
+    if (!exists) {
+      if (!write_log_header(log_fp)) {
+        std::cerr << "Failed to write log header" << std::endl;
+        std::fclose(log_fp);
+        close(fd);
+        return;
+      }
+    }
   }
 
   struct termios tty;
@@ -125,7 +181,18 @@ static void start(const std::string &port, const int speed) {
 
     const auto data = unpack_data(buffer);
     print_pms_data(data);
+
+    if (log_fp != nullptr) {
+      if (!append_log_record(log_fp, data)) {
+        std::cerr << "Failed to append log record: " << strerror(errno)
+                  << std::endl;
+      }
+    }
   }
+
+  if (log_fp != nullptr)
+    std::fclose(log_fp);
+  close(fd);
 }
 
 static speed_t parse_baud(const std::string &s) {
@@ -160,12 +227,15 @@ static void print_usage(const char *prog) {
       << "                        38400, 57600, 115200\n"
       << "\n"
       << "Other options:\n"
+      << "  -o, --output <file>   Append decoded frames to a binary log file\n"
+      << "                        (32-byte records, see tools/visualize.py)\n"
       << "  -h, --help            Show this help message and exit\n";
 }
 
 int main(int argc, char *argv[]) {
   std::string port;
   std::string baud_str;
+  std::string output_path;
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
@@ -186,6 +256,13 @@ int main(int argc, char *argv[]) {
         return 1;
       }
       baud_str = argv[++i];
+    } else if (arg == "-o" || arg == "--output") {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: " << arg << " requires an argument\n";
+        print_usage(argv[0]);
+        return 1;
+      }
+      output_path = argv[++i];
     } else {
       std::cerr << "Error: unknown argument '" << arg << "'\n";
       print_usage(argv[0]);
@@ -206,6 +283,6 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  start(port, baud);
+  start(port, baud, output_path);
   return 0;
 }
