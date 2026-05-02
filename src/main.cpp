@@ -78,6 +78,8 @@ void start(const std::string &port, const int speed) {
     return;
   }
 
+  tcflush(fd, TCIFLUSH);
+
   auto read_exact = [&](unsigned char *dst, size_t len) -> bool {
     size_t got = 0;
     while (got < len) {
@@ -110,7 +112,15 @@ void start(const std::string &port, const int speed) {
 
     buffer[0] = 0x42;
     buffer[1] = 0x4D;
-    if (!read_exact(buffer.data() + 2, PMS7003_PROTOCOL_SIZE - 2))
+    if (!read_exact(buffer.data() + 2, 2))
+      return;
+
+    const uint16_t frame_length = (buffer[2] << 8) | buffer[3];
+    if (frame_length != PMS7003_PROTOCOL_SIZE - 4) {
+      continue;
+    }
+
+    if (!read_exact(buffer.data() + 4, PMS7003_PROTOCOL_SIZE - 4))
       return;
 
     if (!check_header(buffer)) {
