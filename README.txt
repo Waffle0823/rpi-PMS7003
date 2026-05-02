@@ -75,13 +75,47 @@ Required options:
 
 Other options:
 
+    -o, --output <file>   Append decoded frames to a binary log file
+                          (32-byte records, see tools/visualize.py)
     -h, --help            Show usage information and exit
 
 Examples:
 
     ./build/rpi-finedust -p /dev/ttyAMA0 -b 9600
     ./build/rpi-finedust --port /dev/ttyUSB0 --baud 9600
+    ./build/rpi-finedust -p /dev/ttyAMA0 -b 9600 -o run.pmslog
     ./build/rpi-finedust --help
+
+
+Tools
+-----
+
+Helper scripts for the binary log live under `tools/`.
+
+tools/visualize.py reads a log produced with `-o` and plots PM1.0/PM2.5/PM10
+(CF=1, atm) and particle counts over time.
+
+Install dependencies (Raspberry Pi OS / Debian Bookworm blocks system-wide
+`pip install` per PEP 668, so pick one):
+
+    # apt (simplest)
+    sudo apt install python3-numpy python3-matplotlib
+
+    # venv (isolated)
+    sudo apt install python3-venv python3-full
+    python3 -m venv .venv
+    .venv/bin/pip install -r tools/requirements.txt
+
+Usage:
+
+    # show plot interactively
+    python3 tools/visualize.py run.pmslog
+
+    # save plot to a PNG instead of showing
+    python3 tools/visualize.py run.pmslog -o run.png
+
+    # print summary only
+    python3 tools/visualize.py run.pmslog --no-plot
 
 
 Project layout
@@ -92,6 +126,8 @@ Project layout
     src/main.cpp          Serial I/O loop and pretty-printing
     src/pms7003.cpp       Header check, checksum, frame unpacking
     src/utils.cpp         read_u16_be implementation
+    tools/visualize.py    Plot/summarise binary logs produced with -o
+    tools/requirements.txt Python dependencies for visualize.py
     CMakeLists.txt        Build configuration
 
 
