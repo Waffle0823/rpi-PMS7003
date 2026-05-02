@@ -1,5 +1,5 @@
 #include "pms7003.hpp"
-#include <algorithm>
+#include <cerrno>
 #include <cstring>
 #include <fcntl.h>
 #include <iomanip>
@@ -70,49 +70,56 @@ void start(const std::string &port, const int speed) {
   tty.c_iflag &= ~(IXON | IXOFF | IXANY); // no software flow control
   tty.c_oflag &= ~OPOST;
 
-  tty.c_cc[VMIN] = 0;
-  tty.c_cc[VTIME] = 10;
+  tty.c_cc[VMIN] = 1;
+  tty.c_cc[VTIME] = 0;
 
   if (tcsetattr(fd, TCSANOW, &tty) != 0) {
     std::cerr << "tcsetattr failed\n";
     return;
   }
 
-  unsigned char buf[256];
+  auto read_exact = [&](unsigned char *dst, size_t len) -> bool {
+    size_t got = 0;
+    while (got < len) {
+      ssize_t n = read(fd, dst + got, len - got);
+      if (n < 0) {
+        if (errno == EINTR)
+          continue;
+        std::cerr << "read failed: " << strerror(errno) << std::endl;
+        return false;
+      }
+      if (n == 0)
+        continue;
+      got += static_cast<size_t>(n);
+    }
+    return true;
+  };
+
+  Buffer buffer{};
 
   while (true) {
-    int n = read(fd, buf, sizeof(buf));
-    if (n > 0) {
-      std::cout << "Received " << n << " bytes: ";
+    unsigned char b = 0;
+    if (!read_exact(&b, 1))
+      return;
+    if (b != 0x42)
+      continue;
+    if (!read_exact(&b, 1))
+      return;
+    if (b != 0x4D)
+      continue;
 
-      if (n > static_cast<int>(PMS7003_PROTOCOL_SIZE)) {
-        std::cerr << "Discarding frame larger than PMS7003 protocol (" << n
-                  << " bytes)" << std::endl;
-        continue;
-      }
+    buffer[0] = 0x42;
+    buffer[1] = 0x4D;
+    if (!read_exact(buffer.data() + 2, PMS7003_PROTOCOL_SIZE - 2))
+      return;
 
-      Buffer buffer{};
-      std::copy_n(buf, n, buffer.begin());
-
-      if (n < static_cast<int>(PMS7003_PROTOCOL_SIZE)) {
-        std::cerr << "Incomplete frame (" << n
-                  << " bytes), waiting for complete packet" << std::endl;
-        continue;
-      }
-
-      if (!check_header(buffer)) {
-        std::cerr << "Invalid PMS7003 frame header" << std::endl;
-        continue;
-      }
-
-      if (!check_checksum(buffer)) {
-        std::cerr << "Checksum mismatch for PMS7003 frame" << std::endl;
-        continue;
-      }
-
-      const auto data = unpack_data(buffer);
-      print_pms_data(data);
+    if (!check_checksum(buffer)) {
+      std::cerr << "Checksum mismatch for PMS7003 frame" << std::endl;
+      continue;
     }
+
+    const auto data = unpack_data(buffer);
+    print_pms_data(data);
   }
 }
 
