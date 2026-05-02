@@ -44,34 +44,22 @@ void start(const std::string &port, const int speed) {
   }
 
   struct termios tty;
-  memset(&tty, 0, sizeof tty);
-
   if (tcgetattr(fd, &tty) != 0) {
     std::cerr << "tcgetattr failed\n";
     return;
   }
 
+  cfmakeraw(&tty); // 8N1, no parity, no flow control, binary-safe input/output
+
   cfsetospeed(&tty, speed);
   cfsetispeed(&tty, speed);
 
-  tty.c_cflag &= ~PARENB; // no parity
-  tty.c_cflag &= ~CSTOPB; // 1 stop bit
-  tty.c_cflag &= ~CSIZE;
-  tty.c_cflag |= CS8; // 8 bits
+  tty.c_cflag &= ~CRTSCTS;        // no hardware flow control
+  tty.c_cflag |= CREAD | CLOCAL;  // enable reader, ignore modem lines
 
-  tty.c_cflag &= ~CRTSCTS; // no flow control
-  tty.c_cflag |= CREAD | CLOCAL;
-
-  tty.c_lflag &= ~ICANON; // raw mode
-  tty.c_lflag &= ~ECHO;
-  tty.c_lflag &= ~ECHOE;
-  tty.c_lflag &= ~ISIG;
-
-  tty.c_iflag &= ~(IXON | IXOFF | IXANY); // no software flow control
-  tty.c_oflag &= ~OPOST;
-
-  tty.c_cc[VMIN] = 1;
-  tty.c_cc[VTIME] = 0;
+  // Block until at least 32 bytes are available (one full frame) or 100ms pass.
+  tty.c_cc[VMIN] = PMS7003_PROTOCOL_SIZE;
+  tty.c_cc[VTIME] = 1;
 
   if (tcsetattr(fd, TCSANOW, &tty) != 0) {
     std::cerr << "tcsetattr failed\n";
