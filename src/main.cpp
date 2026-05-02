@@ -113,6 +113,11 @@ void start(const std::string &port, const int speed) {
     if (!read_exact(buffer.data() + 2, PMS7003_PROTOCOL_SIZE - 2))
       return;
 
+    if (!check_header(buffer)) {
+      std::cerr << "Invalid PMS7003 frame header" << std::endl;
+      continue;
+    }
+
     if (!check_checksum(buffer)) {
       std::cerr << "Checksum mismatch for PMS7003 frame" << std::endl;
       continue;
