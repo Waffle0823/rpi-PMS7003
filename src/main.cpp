@@ -129,6 +129,6 @@ void start(const std::string &port, const int speed) {
 }
 
 int main() {
-  start("/dev/ttyS0", B9600);
+  start("/dev/ttyAMA0", B9600);
   return 0;
 }
