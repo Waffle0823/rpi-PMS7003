@@ -1,13 +1,15 @@
 #include "pms7003.hpp"
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <iomanip>
 #include <iostream>
+#include <string>
 #include <termios.h>
 #include <unistd.h>
 
-void print_pms_data(const PMS7003Data &data) {
+static void print_pms_data(const PMS7003Data &data) {
   using std::cout;
   using std::endl;
 
@@ -36,7 +38,7 @@ void print_pms_data(const PMS7003Data &data) {
   cout << std::dec << std::setfill(' ');
 }
 
-void start(const std::string &port, const int speed) {
+static void start(const std::string &port, const int speed) {
   int fd = open(port.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
   if (fd < 0) {
     std::cerr << "Failed to open serial port" << std::endl;
@@ -54,8 +56,8 @@ void start(const std::string &port, const int speed) {
   cfsetospeed(&tty, speed);
   cfsetispeed(&tty, speed);
 
-  tty.c_cflag &= ~CRTSCTS;        // no hardware flow control
-  tty.c_cflag |= CREAD | CLOCAL;  // enable reader, ignore modem lines
+  tty.c_cflag &= ~CRTSCTS;       // no hardware flow control
+  tty.c_cflag |= CREAD | CLOCAL; // enable reader, ignore modem lines
 
   // Block until at least 32 bytes are available (one full frame) or 100ms pass.
   tty.c_cc[VMIN] = PMS7003_PROTOCOL_SIZE;
@@ -126,7 +128,84 @@ void start(const std::string &port, const int speed) {
   }
 }
 
-int main() {
-  start("/dev/ttyAMA0", B9600);
+static speed_t parse_baud(const std::string &s) {
+  if (s == "1200")
+    return B1200;
+  if (s == "2400")
+    return B2400;
+  if (s == "4800")
+    return B4800;
+  if (s == "9600")
+    return B9600;
+  if (s == "19200")
+    return B19200;
+  if (s == "38400")
+    return B38400;
+  if (s == "57600")
+    return B57600;
+  if (s == "115200")
+    return B115200;
+  return B0;
+}
+
+static void print_usage(const char *prog) {
+  std::cout
+      << "Usage: " << prog << " -p <device> -b <rate>\n"
+      << "\n"
+      << "Read PMS7003 air-quality frames from a serial port and print them.\n"
+      << "\n"
+      << "Required options:\n"
+      << "  -p, --port <device>   Serial device (e.g. /dev/ttyAMA0)\n"
+      << "  -b, --baud <rate>     Baud rate: 1200, 2400, 4800, 9600, 19200,\n"
+      << "                        38400, 57600, 115200\n"
+      << "\n"
+      << "Other options:\n"
+      << "  -h, --help            Show this help message and exit\n";
+}
+
+int main(int argc, char *argv[]) {
+  std::string port;
+  std::string baud_str;
+
+  for (int i = 1; i < argc; ++i) {
+    std::string arg = argv[i];
+    if (arg == "-h" || arg == "--help") {
+      print_usage(argv[0]);
+      return 0;
+    } else if (arg == "-p" || arg == "--port") {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: " << arg << " requires an argument\n";
+        print_usage(argv[0]);
+        return 1;
+      }
+      port = argv[++i];
+    } else if (arg == "-b" || arg == "--baud") {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: " << arg << " requires an argument\n";
+        print_usage(argv[0]);
+        return 1;
+      }
+      baud_str = argv[++i];
+    } else {
+      std::cerr << "Error: unknown argument '" << arg << "'\n";
+      print_usage(argv[0]);
+      return 1;
+    }
+  }
+
+  if (port.empty() || baud_str.empty()) {
+    std::cerr << "Error: --port and --baud are required\n";
+    print_usage(argv[0]);
+    return 1;
+  }
+
+  speed_t baud = parse_baud(baud_str);
+  if (baud == B0) {
+    std::cerr << "Error: unsupported baud rate '" << baud_str << "'\n";
+    print_usage(argv[0]);
+    return 1;
+  }
+
+  start(port, baud);
   return 0;
 }

@@ -62,13 +62,26 @@ The resulting executable is `build/rpi-finedust`.
 Run
 ---
 
-    ./build/rpi-finedust
+    ./build/rpi-finedust -p <device> -b <rate>
 
-The program opens /dev/ttyAMA0 at 9600 baud and prints one decoded frame per
-received packet. Press Ctrl-C to stop.
+The program opens a serial device, reads PMS7003 frames, and prints one
+decoded frame per received packet. Press Ctrl-C to stop.
 
-To use a different serial device or baud rate, edit the call to `start(...)`
-in `src/main.cpp` (e.g. "/dev/serial0" or "/dev/ttyUSB0").
+Required options:
+
+    -p, --port <device>   Serial device (e.g. /dev/ttyAMA0)
+    -b, --baud <rate>     Baud rate: 1200, 2400, 4800, 9600, 19200, 38400,
+                          57600, 115200
+
+Other options:
+
+    -h, --help            Show usage information and exit
+
+Examples:
+
+    ./build/rpi-finedust -p /dev/ttyAMA0 -b 9600
+    ./build/rpi-finedust --port /dev/ttyUSB0 --baud 9600
+    ./build/rpi-finedust --help
 
 
 Project layout
