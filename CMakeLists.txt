@@ -11,7 +11,7 @@ project(rpi-pms7003)
 # Link
 add_executable(rpi-finedust)
 
-target_sources(rpi-finedust PRIVATE src/main.cpp)
+target_sources(rpi-finedust PRIVATE src/main.cpp src/utils.cpp src/pms7003.cpp)
 
 target_include_directories(rpi-finedust PRIVATE include)
 
